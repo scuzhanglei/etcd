@@ -15,6 +15,7 @@
 package walpb
 
 import "errors"
+import "fmt"
 
 var (
 	ErrCRCMismatch = errors.New("walpb: crc mismatch")
@@ -25,6 +26,7 @@ func (rec *Record) Validate(crc uint32) error {
 		return nil
 	}
 	rec.Reset()
+	fmt.Printf("wal CRC Validate failed: rec.Crc: [%v], expected Crc: [%v]\n", rec.Crc, crc)
 	return ErrCRCMismatch
 }
 

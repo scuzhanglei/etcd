@@ -110,7 +110,8 @@ and output a hex encoded line of binary for each input line`)
 	wmetadata, state, ents, err := w.ReadAll()
 	w.Close()
 	if err != nil && (!isIndex || err != wal.ErrSnapshotNotFound) {
-		log.Fatalf("Failed reading WAL: %v", err)
+		//log.Fatalf("Failed reading WAL: %v", err)
+		log.Printf("fatalf Failed reading WAL, still print entries: %v", err)
 	}
 	id, cid := parseWALMetadata(wmetadata)
 	vid := types.ID(state.Vote)

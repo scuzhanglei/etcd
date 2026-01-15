@@ -104,7 +104,7 @@ func readWAL(lg *zap.Logger, waldir string, snap walpb.Snapshot, unsafeNoFsync b
 			if repaired || !errors.Is(err, io.ErrUnexpectedEOF) {
 				lg.Fatal("failed to read WAL, cannot be repaired", zap.Error(err))
 			}
-			if !wal.Repair(lg, waldir) {
+			if !wal.Repair(lg, waldir) {// 修复最后一条可能 部分写 不完整的 record
 				lg.Fatal("failed to repair WAL", zap.Error(err))
 			} else {
 				lg.Info("repaired WAL", zap.Error(err))

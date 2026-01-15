@@ -24,6 +24,7 @@ import (
 	"go.etcd.io/etcd/pkg/v3/crc"
 	"go.etcd.io/etcd/pkg/v3/ioutil"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
+	"go.uber.org/zap"
 )
 
 // walPageBytes is the alignment for flushing records to the backing Writer.
@@ -38,28 +39,31 @@ type encoder struct {
 	crc       hash.Hash32
 	buf       []byte
 	uint64buf []byte
+	lg        *zap.Logger
 }
 
-func newEncoder(w io.Writer, prevCrc uint32, pageOffset int) *encoder {
+func newEncoder(lg *zap.Logger, w io.Writer, prevCrc uint32, pageOffset int) *encoder {
 	return &encoder{
 		bw:  ioutil.NewPageWriter(w, walPageBytes, pageOffset),
 		crc: crc.New(prevCrc, crcTable),
 		// 1MB buffer
 		buf:       make([]byte, 1024*1024),
 		uint64buf: make([]byte, 8),
+		lg:        lg,
 	}
 }
 
 // newFileEncoder creates a new encoder with current file offset for the page writer.
-func newFileEncoder(f *os.File, prevCrc uint32) (*encoder, error) {
+func newFileEncoder(lg *zap.Logger, f *os.File, prevCrc uint32) (*encoder, error) {
 	offset, err := f.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return nil, err
 	}
-	return newEncoder(f, prevCrc, int(offset)), nil
+	return newEncoder(lg, f, prevCrc, int(offset)), nil
 }
 
-func (e *encoder) encode(rec *walpb.Record) error {
+// return length
+func (e *encoder) encode(rec *walpb.Record) (int64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -74,27 +78,28 @@ func (e *encoder) encode(rec *walpb.Record) error {
 	if rec.Size() > len(e.buf) {
 		data, err = rec.Marshal()
 		if err != nil {
-			return err
+			return 0, err
 		}
 	} else {
 		n, err = rec.MarshalTo(e.buf)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		data = e.buf[:n]
 	}
 
 	lenField, padBytes := encodeFrameSize(len(data))
 	if err = writeUint64(e.bw, lenField, e.uint64buf); err != nil {
-		return err
+		return 0, err
 	}
 
 	if padBytes != 0 {
 		data = append(data, make([]byte, padBytes)...)
 	}
 	n, err = e.bw.Write(data)
+	e.lg.Info("encode walpb.Record", zap.Uint64("lenField", lenField), zap.Int("padBytes", padBytes), zap.Int("dataBytes", len(data)), zap.Int("total", frameSizeBytes+len(data)))
 	walWriteBytes.Add(float64(n))
-	return err
+	return int64(frameSizeBytes) + int64(len(data)), err
 }
 
 func encodeFrameSize(dataBytes int) (lenField uint64, padBytes int) {

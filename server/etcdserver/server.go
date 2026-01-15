@@ -487,10 +487,13 @@ func NewServer(cfg config.ServerConfig) (srv *EtcdServer, err error) {
 
 		// Find a snapshot to start/restart a raft node
 		var walSnaps []walpb.Snapshot
+		cfg.Logger.Info("ValidSnapshotEntries start")
 		walSnaps, err = wal.ValidSnapshotEntries(cfg.Logger, cfg.WALDir())
 		if err != nil {
+			cfg.Logger.Error("ValidSnapshotEntries failed", zap.Error(err))
 			return nil, err
 		}
+		cfg.Logger.Info("ValidSnapshotEntries done")
 		// snapshot files can be orphaned if etcd crashes after writing them but before writing the corresponding
 		// wal log entries
 		snapshot, err = ss.LoadNewestAvailable(walSnaps)
@@ -1302,7 +1305,7 @@ func (s *EtcdServer) applySnapshot(ep *etcdProgress, apply *apply) {
 	// wait for raftNode to persist snapshot onto the disk
 	<-apply.notifyc
 
-	newbe, err := openSnapshotBackend(s.Cfg, s.snapshotter, apply.snapshot, s.beHooks)
+	newbe, err := openSnapshotBackend(s.Cfg, s.snapshotter, apply.snapshot, s.beHooks) // create a new be.
 	if err != nil {
 		lg.Panic("failed to open snapshot backend", zap.Error(err))
 	}
@@ -2277,7 +2280,7 @@ func (s *EtcdServer) applyEntryNormal(e *raftpb.Entry) {
 		s.w.Trigger(r.ID, s.applyV2Request((*RequestV2)(rp), shouldApplyV3))
 		return
 	}
-	s.lg.Debug("applyEntryNormal", zap.Stringer("raftReq", &raftReq))
+	s.lg.Debug("applyEntryNormal", zap.String("raftReq", string(raftReq.Put.Key)))
 
 	if raftReq.V2 != nil {
 		req := (*RequestV2)(raftReq.V2)

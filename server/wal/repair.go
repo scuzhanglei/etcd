@@ -41,7 +41,7 @@ func Repair(lg *zap.Logger, dirpath string) bool {
 	lg.Info("repairing", zap.String("path", f.Name()))
 
 	rec := &walpb.Record{}
-	decoder := newDecoder(fileutil.NewFileReader(f.File))
+	decoder := newDecoder(lg, fileutil.NewFileReader(f.File))
 	for {
 		lastOffset := decoder.lastOffset()
 		err := decoder.decode(rec)
@@ -82,6 +82,7 @@ func Repair(lg *zap.Logger, dirpath string) bool {
 				return false
 			}
 
+			lg.Info("truncate to", zap.Int64("lastOffset", lastOffset))
 			if err = f.Truncate(lastOffset); err != nil {
 				lg.Warn("failed to truncate", zap.String("path", f.Name()), zap.Error(err))
 				return false

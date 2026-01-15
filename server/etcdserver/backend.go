@@ -31,6 +31,7 @@ import (
 func newBackend(cfg config.ServerConfig, hooks backend.Hooks) backend.Backend {
 	bcfg := backend.DefaultBackendConfig()
 	bcfg.Path = cfg.BackendPath()
+	fmt.Printf("newBackend %s\n", bcfg.Path)
 	bcfg.UnsafeNoFsync = cfg.UnsafeNoFsync
 	if cfg.BackendBatchLimit != 0 {
 		bcfg.BatchLimit = cfg.BackendBatchLimit
@@ -57,6 +58,7 @@ func newBackend(cfg config.ServerConfig, hooks backend.Hooks) backend.Backend {
 
 // openSnapshotBackend renames a snapshot db to the current etcd db and opens it.
 func openSnapshotBackend(cfg config.ServerConfig, ss *snap.Snapshotter, snapshot raftpb.Snapshot, hooks backend.Hooks) (backend.Backend, error) {
+	fmt.Printf("openSnapshotBackend, snapshot.Metadata.Index: %v\n", snapshot.Metadata.Index)
 	snapPath, err := ss.DBFilePath(snapshot.Metadata.Index)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find database snapshot file (%v)", err)
@@ -71,6 +73,7 @@ func openSnapshotBackend(cfg config.ServerConfig, ss *snap.Snapshotter, snapshot
 func openBackend(cfg config.ServerConfig, hooks backend.Hooks) backend.Backend {
 	fn := cfg.BackendPath()
 
+	fmt.Printf("openBackend %s\n", fn)
 	now, beOpened := time.Now(), make(chan backend.Backend)
 	go func() {
 		beOpened <- newBackend(cfg, hooks)

@@ -26,6 +26,7 @@ import (
 	"go.etcd.io/etcd/pkg/v3/pbutil"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
+	"go.uber.org/zap"
 )
 
 const minSectorSize = 512
@@ -40,9 +41,10 @@ type decoder struct {
 	// lastValidOff file offset following the last valid decoded record
 	lastValidOff int64
 	crc          hash.Hash32
+	lg           *zap.Logger
 }
 
-func newDecoder(r ...fileutil.FileReader) *decoder {
+func newDecoder(lg *zap.Logger, r ...fileutil.FileReader) *decoder {
 	readers := make([]*fileutil.FileBufReader, len(r))
 	for i := range r {
 		readers[i] = fileutil.NewFileBufReader(r[i])
@@ -50,6 +52,7 @@ func newDecoder(r ...fileutil.FileReader) *decoder {
 	return &decoder{
 		brs: readers,
 		crc: crc.New(0, crcTable),
+		lg:  lg,
 	}
 }
 
@@ -62,25 +65,34 @@ func (d *decoder) decode(rec *walpb.Record) error {
 
 func (d *decoder) decodeRecord(rec *walpb.Record) error {
 	if len(d.brs) == 0 {
+		d.lg.Info("d.brs is empty")
 		return io.EOF
 	}
 
 	fileBufReader := d.brs[0]
-	l, err := readInt64(fileBufReader)
+	d.lg.Info("decodeRecord", zap.String("fileName", fileBufReader.FileInfo().Name()),
+		zap.Int64("fileSize", fileBufReader.FileInfo().Size()), zap.Int64("lastValidOff", d.lastValidOff))
+	l, err := readInt64(fileBufReader) // 先读取长度信息
+	// 切到下一个 WAL 文件
 	if err == io.EOF || (err == nil && l == 0) {
 		// hit end of file or preallocated space
+		d.lg.Info("hit end of file  EOF or preallocated space")
 		d.brs = d.brs[1:]
 		if len(d.brs) == 0 {
+			d.lg.Info("last file EOF")
 			return io.EOF
 		}
 		d.lastValidOff = 0
 		return d.decodeRecord(rec)
 	}
 	if err != nil {
+		d.lg.Warn("read length int64 failed:", zap.Error(err))
 		return err
 	}
 
 	recBytes, padBytes := decodeFrameSize(l)
+	d.lg.Info("rec length", zap.Int64("recBytes", recBytes), zap.Int64("padBytes", padBytes), zap.Int64("lastValidOff", d.lastValidOff),
+		zap.Int64("total", recBytes+padBytes+frameSizeBytes))
 	// The length of current WAL entry must be less than the remaining file size.
 	maxEntryLimit := fileBufReader.FileInfo().Size() - d.lastValidOff - padBytes
 	if recBytes > maxEntryLimit {
@@ -88,19 +100,22 @@ func (d *decoder) decodeRecord(rec *walpb.Record) error {
 			io.ErrUnexpectedEOF, fileBufReader.FileInfo().Name(), recBytes, fileBufReader.FileInfo().Size(), d.lastValidOff, padBytes, maxEntryLimit)
 	}
 
-	data := make([]byte, recBytes+padBytes)
+	data := make([]byte, recBytes+padBytes) // 再读取 walpb record + 填充
 	if _, err = io.ReadFull(fileBufReader, data); err != nil {
 		// ReadFull returns io.EOF only if no bytes were read
 		// the decoder should treat this as an ErrUnexpectedEOF instead.
+		d.lg.Warn("read data failed", zap.Error(err))
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
 		return err
 	}
+
 	if err := rec.Unmarshal(data[:recBytes]); err != nil {
 		if d.isTornEntry(data) {
 			return io.ErrUnexpectedEOF
 		}
+		d.lg.Warn("padding bytes", zap.Binary("bytes", data[recBytes:]))
 		return err
 	}
 
@@ -111,6 +126,9 @@ func (d *decoder) decodeRecord(rec *walpb.Record) error {
 			if d.isTornEntry(data) {
 				return io.ErrUnexpectedEOF
 			}
+
+			d.lg.Warn("decode record failed", zap.Binary("recData", rec.Data), zap.Binary("data", data))
+
 			return err
 		}
 	}

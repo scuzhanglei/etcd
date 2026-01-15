@@ -447,6 +447,7 @@ func (b *backend) Defrag() error {
 }
 
 func (b *backend) defrag() error {
+	fmt.Printf("start defrag\n")
 	now := time.Now()
 	isDefragActive.Set(1)
 	defer isDefragActive.Set(0)
@@ -558,6 +559,7 @@ func (b *backend) defrag() error {
 			zap.Duration("took", took),
 		)
 	}
+	fmt.Printf("finished defrag\n")
 	return nil
 }
 

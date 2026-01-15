@@ -38,6 +38,7 @@ func Exist(dir string) bool {
 // searchIndex returns the last array index of names whose raft index section is
 // equal to or smaller than the given index.
 // The given names MUST be sorted.
+// 所有的 wal 排序，取 比 snap index 更小的 wal 中最大那个，以及其后面的几个 wal
 func searchIndex(lg *zap.Logger, names []string, index uint64) (int, bool) {
 	for i := len(names) - 1; i >= 0; i-- {
 		name := names[i]
